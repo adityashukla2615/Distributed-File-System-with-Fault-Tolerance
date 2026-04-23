@@ -1,0 +1,30 @@
+{
+  "Crop Production Analysis of India.pdf": {
+    "size": 571422,
+    "total_chunks": 2,
+    "chunks": [
+      {
+        "chunk_id": "96d9f2e3f8c6",
+        "index": 0,
+        "size": 524288,
+        "nodes": [
+          9001,
+          9002,
+          9003
+        ]
+      },
+      {
+        "chunk_id": "50b4a3d3e46c",
+        "index": 1,
+        "size": 47134,
+        "nodes": [
+          9001,
+          9002,
+          9003
+        ]
+      }
+    ],
+    "created_at": "2026-04-20T11:39:54.041310",
+    "checksum": "bbb5d362a2ca2d5c32312a765131703c"
+  }
+}
