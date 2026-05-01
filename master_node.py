@@ -21,16 +21,17 @@ CHUNK_SIZE = 512 * 1024  # 512KB per chunk
 HEARTBEAT_INTERVAL = 5   # seconds
 NODE_TIMEOUT = 15        # seconds before declared dead
 
-# Node registry: port -> {status, last_seen, stored_chunks}
 node_registry = {}
-metadata_store = {}  # filename -> {size, chunks, created_at}
+metadata_store = {}
 lock = threading.Lock()
 
 METADATA_FILE = "master_metadata.json"
 
 def log(msg, level="INFO"):
     ts = datetime.now().strftime("%H:%M:%S")
-    print(f"[{ts}] [MASTER] [{level}] {msg}")
+    symbols = {"INFO": "·", "WARN": "⚠", "ERROR": "✕", "RECOVERY": "↻"}
+    sym = symbols.get(level, "·")
+    print(f"[{ts}] [MASTER] {sym} {msg}")
 
 def save_metadata():
     with open(METADATA_FILE, "w") as f:
@@ -74,7 +75,7 @@ def send_to_node(port, command, payload=None):
         s.connect(('localhost', port))
         msg = {"command": command, "payload": payload}
         s.sendall(pickle.dumps(msg))
-        s.shutdown(socket.SHUT_WR)  # Signal end of send
+        s.shutdown(socket.SHUT_WR)
         data = b""
         while True:
             chunk = s.recv(65536)
@@ -89,7 +90,6 @@ def send_to_node(port, command, payload=None):
         return None
 
 def replicate_chunk(chunk_data, chunk_id, target_nodes):
-    """Send a chunk to multiple nodes"""
     success_nodes = []
     for port in target_nodes:
         result = send_to_node(port, "STORE_CHUNK", {
@@ -98,11 +98,10 @@ def replicate_chunk(chunk_data, chunk_id, target_nodes):
         })
         if result and result.get("status") == "ok":
             success_nodes.append(port)
-            log(f"Chunk {chunk_id} stored on node {port}")
+            log(f"Chunk {chunk_id} → node :{port}")
     return success_nodes
 
 def upload_file(filename, file_data):
-    """Split file into chunks and distribute across nodes"""
     alive_nodes = get_alive_nodes()
     if len(alive_nodes) < REPLICATION_FACTOR:
         return {"error": f"Need at least {REPLICATION_FACTOR} alive nodes, only {len(alive_nodes)} available"}
@@ -117,10 +116,8 @@ def upload_file(filename, file_data):
         start = i * CHUNK_SIZE
         end = min(start + CHUNK_SIZE, file_size)
         chunk_data = file_data[start:end]
-
         chunk_id = hashlib.md5(f"{filename}_{i}".encode()).hexdigest()[:12]
-        target_nodes = alive_nodes[:REPLICATION_FACTOR]  # pick first N alive nodes
-
+        target_nodes = alive_nodes[:REPLICATION_FACTOR]
         success_nodes = replicate_chunk(chunk_data, chunk_id, target_nodes)
 
         chunks_info.append({
@@ -130,7 +127,6 @@ def upload_file(filename, file_data):
             "nodes": success_nodes
         })
 
-        # Update node registry
         with lock:
             for port in success_nodes:
                 if port in node_registry:
@@ -144,11 +140,10 @@ def upload_file(filename, file_data):
         "checksum": hashlib.md5(file_data).hexdigest()
     }
     save_metadata()
-    log(f"Upload complete: '{filename}'")
+    log(f"Upload complete: '{filename}' — {total_chunks} chunks × RF={REPLICATION_FACTOR}")
     return {"status": "ok", "chunks": total_chunks, "replicas": REPLICATION_FACTOR}
 
 def download_file(filename):
-    """Retrieve all chunks from nodes and reassemble"""
     if filename not in metadata_store:
         return {"error": "File not found"}
 
@@ -174,7 +169,6 @@ def download_file(filename):
             log(f"CRITICAL: Chunk {chunk_id} not retrievable!", "ERROR")
             return {"error": f"Chunk {chunk_id} lost — all replicas failed"}
 
-    # Verify checksum
     if hashlib.md5(file_data).hexdigest() != meta["checksum"]:
         return {"error": "Checksum mismatch — data corrupted"}
 
@@ -182,7 +176,6 @@ def download_file(filename):
     return {"status": "ok", "data": file_data, "size": len(file_data)}
 
 def delete_file(filename):
-    """Delete file from all nodes"""
     if filename not in metadata_store:
         return {"error": "File not found"}
 
@@ -197,7 +190,6 @@ def delete_file(filename):
     return {"status": "ok"}
 
 def check_and_rereplicate():
-    """Background: detect node failures and rereplicate lost chunks"""
     while True:
         time.sleep(HEARTBEAT_INTERVAL)
         alive_nodes = get_alive_nodes()
@@ -211,7 +203,6 @@ def check_and_rereplicate():
                     candidates = [n for n in alive_nodes if n not in alive_replicas][:needed]
 
                     if candidates:
-                        # Fetch chunk from alive replica
                         result = send_to_node(alive_replicas[0], "GET_CHUNK",
                                               {"chunk_id": chunk_info["chunk_id"]})
                         if result and result.get("status") == "ok":
@@ -220,11 +211,10 @@ def check_and_rereplicate():
                             )
                             chunk_info["nodes"].extend(new_nodes)
                             if new_nodes:
-                                log(f"Re-replicated chunk {chunk_info['chunk_id']} to {new_nodes}", "RECOVERY")
+                                log(f"Re-replicated chunk {chunk_info['chunk_id']} → {new_nodes}", "RECOVERY")
                             save_metadata()
 
 def handle_client(conn, addr):
-    """Handle API requests from dashboard"""
     try:
         data = b""
         while True:
@@ -243,7 +233,7 @@ def handle_client(conn, addr):
             with lock:
                 if port not in node_registry:
                     node_registry[port] = {"stored_chunks": []}
-                    log(f"New node registered: {port}")
+                    log(f"New node registered: :{port}")
                 node_registry[port]["last_seen"] = time.time()
             response = {"status": "ok"}
 
@@ -259,11 +249,25 @@ def handle_client(conn, addr):
         elif cmd == "LIST_FILES":
             files = []
             for fname, meta in metadata_store.items():
+                alive_nodes = get_alive_nodes()
+                chunks_health = []
+                for c in meta["chunks"]:
+                    alive = [n for n in c["nodes"] if n in alive_nodes]
+                    chunks_health.append({
+                        "chunk_id": c["chunk_id"],
+                        "index": c["index"],
+                        "size": c["size"],
+                        "nodes": c["nodes"],
+                        "alive_replicas": len(alive),
+                        "total_replicas": len(c["nodes"])
+                    })
                 files.append({
                     "name": fname,
                     "size": meta["size"],
                     "chunks": meta["total_chunks"],
-                    "created_at": meta["created_at"]
+                    "created_at": meta["created_at"],
+                    "checksum": meta["checksum"],
+                    "chunks_detail": chunks_health
                 })
             response = {"files": files}
 
@@ -272,11 +276,17 @@ def handle_client(conn, addr):
 
         elif cmd == "GET_STATS":
             alive = get_alive_nodes()
+            total_chunks = sum(len(m["chunks"]) for m in metadata_store.values())
+            total_size = sum(m["size"] for m in metadata_store.values())
             response = {
                 "total_files": len(metadata_store),
                 "alive_nodes": len(alive),
                 "total_nodes": len(node_registry),
-                "replication_factor": REPLICATION_FACTOR
+                "replication_factor": REPLICATION_FACTOR,
+                "chunk_size": CHUNK_SIZE,
+                "total_chunks": total_chunks,
+                "total_size": total_size,
+                "node_ports": [9001, 9002, 9003, 9004, 9005]
             }
 
         conn.sendall(pickle.dumps(response))
@@ -294,8 +304,14 @@ def start_master():
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind((MASTER_HOST, MASTER_PORT))
     server.listen(20)
-    log(f"Master Node started on port {MASTER_PORT}")
-    log(f"Replication Factor: {REPLICATION_FACTOR} | Chunk Size: {CHUNK_SIZE//1024}KB")
+
+    print("\n" + "="*55)
+    print("  ⬡  MASTER NODE ONLINE")
+    print(f"     Port          : {MASTER_PORT}")
+    print(f"     Replication   : RF={REPLICATION_FACTOR}")
+    print(f"     Chunk size    : {CHUNK_SIZE//1024} KB")
+    print(f"     Node timeout  : {NODE_TIMEOUT}s")
+    print("="*55 + "\n")
 
     while True:
         conn, addr = server.accept()

@@ -12,7 +12,6 @@ import io
 
 app = Flask(__name__)
 MASTER_PORT = 9000
-
 NODE_PORTS = [9001, 9002, 9003, 9004, 9005]
 
 def send_to_master(command, payload=None):
@@ -22,7 +21,7 @@ def send_to_master(command, payload=None):
         s.connect(('localhost', MASTER_PORT))
         msg = {"command": command, "payload": payload or {}}
         s.sendall(pickle.dumps(msg))
-        s.shutdown(socket.SHUT_WR)  # Signal end of send
+        s.shutdown(socket.SHUT_WR)
         data = b""
         while True:
             chunk = s.recv(65536)
@@ -33,8 +32,6 @@ def send_to_master(command, payload=None):
         return pickle.loads(data) if data else {}
     except Exception as e:
         return {"error": str(e)}
-
-# ─── Routes ──────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -61,6 +58,9 @@ def api_stats():
         "alive_nodes": stats.get("alive_nodes", 0),
         "total_nodes": stats.get("total_nodes", 0),
         "replication_factor": stats.get("replication_factor", 3),
+        "chunk_size": stats.get("chunk_size", 524288),
+        "total_chunks": stats.get("total_chunks", 0),
+        "total_size": stats.get("total_size", 0),
         "nodes": sorted(node_list, key=lambda x: x["port"]),
         "files": files.get("files", [])
     })
@@ -72,12 +72,8 @@ def api_upload():
     f = request.files["file"]
     if f.filename == "":
         return jsonify({"error": "No file selected"}), 400
-
     file_data = f.read()
-    result = send_to_master("UPLOAD", {
-        "filename": f.filename,
-        "data": file_data
-    })
+    result = send_to_master("UPLOAD", {"filename": f.filename, "data": file_data})
     return jsonify(result)
 
 @app.route("/api/download/<filename>")
@@ -102,7 +98,7 @@ def api_files():
     return jsonify(result)
 
 if __name__ == "__main__":
-    print("\n" + "="*50)
-    print("  DFS Dashboard running at http://localhost:5000")
-    print("="*50 + "\n")
+    print("\n" + "="*55)
+    print("  📊 DFS Dashboard → http://localhost:5000")
+    print("="*55 + "\n")
     app.run(debug=False, port=5000)

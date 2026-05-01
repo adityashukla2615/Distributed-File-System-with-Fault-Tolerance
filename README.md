@@ -1,148 +1,97 @@
-📂 Distributed File System (DFS)
-🚀 Overview
+# ⬡ Distributed File System with Fault Tolerance
+### OS Course Project
 
-This project is a Distributed File System (DFS) built using Python that ensures:
+---
 
-✅ High data availability
-✅ Strong consistency
-✅ Robust fault tolerance
+## Quick Start (one command)
 
-The system distributes files across multiple storage nodes, replicates data, and automatically handles node failures while maintaining reliable access.
+```bash
+# 1. Install dependencies
+pip install flask
 
-🧠 Core Idea
-
-Files are split into chunks and distributed across multiple nodes.
-Each chunk is replicated to ensure reliability and recovery during failures.
-
-Example metadata structure:
-📄
-
-🏗️ Architecture
-Client (Web Dashboard)
-        ↓
-   Master Node (Port 9000)
-        ↓
-Storage Nodes (Ports 9001–9005)
-⚙️ Components
-🧩 1. Master Node
-
-📄
-
-Handles:
-
-Metadata management
-File chunking (512 KB chunks)
-Replication (default = 3 copies)
-Node health monitoring (heartbeat system)
-Failure recovery (re-replication)
-💾 2. Storage Nodes
-
-📄
-
-Responsibilities:
-
-Store file chunks
-Serve read/write requests
-Send heartbeat signals to master
-Manage local storage
-🌐 3. Web Dashboard
-
-📄
-
-Features:
-
-Upload / Download / Delete files
-View system stats
-Monitor node health
-Track file distribution
-
-Runs at:
-👉 http://localhost:5000
-
-🚀 4. Launcher Script
-
-📄
-
-Starts everything with one command:
-
-Master node
-5 storage nodes
-Dashboard
-🔥 Key Features
-🔁 Replication Factor = 3
-📦 Chunk-based storage (512KB per chunk)
-❤️ Heartbeat-based failure detection
-🔄 Automatic re-replication on node failure
-🔐 Checksum verification for data integrity
-📊 Live monitoring dashboard
-⚙️ Installation
-1. Clone Repository
-git clone https://github.com/your-username/dfs-project.git
-cd dfs-project
-2. Install Dependencies
-pip install -r requirements.txt
-
-📄 Requirements:
-
-
-▶️ Running the Project
-✅ One Command Setup (Recommended)
+# 2. Start everything
 python launch.py
+```
 
-This will start:
+Then open → **http://localhost:5000**
 
-Master Node → 9000
-Storage Nodes → 9001–9005
-Dashboard → 5000
-📊 Usage
-Upload File
-Use dashboard UI
-Or API: /api/upload
-Download File
-From dashboard
-Or API: /api/download/<filename>
-Delete File
-From dashboard
-Or API: /api/delete/<filename>
-🧪 Fault Tolerance Mechanism
-Nodes send heartbeat every 4 seconds
-If node inactive for 15 seconds → marked dead
-System automatically:
-Detects missing replicas
-Re-replicates chunks to healthy nodes
-📁 File Handling Flow
-File uploaded
-Split into chunks
-Chunks distributed across nodes
-Metadata stored in master
-Replicas created (3 copies)
-📊 Example
-File → 2 chunks
+---
 
-Each chunk stored on:
+## Architecture
 
-Node 9001, 9002, 9003
-🔐 Data Integrity
-Uses MD5 checksum
-Validates file during download
-Prevents corrupted data delivery
-📈 Future Improvements
-☁️ Cloud deployment (AWS / GCP)
-🔐 Encryption support
-⚖️ Load balancing strategies
-📡 Distributed master (remove single point of failure)
-📊 Advanced analytics dashboard
-👨‍💻 Author
+```
+                    ┌─────────────────┐
+                    │   Master Node   │
+                    │    :9000        │
+                    │  metadata store │
+                    │  fault detector │
+                    └────────┬────────┘
+                             │ heartbeats + commands
+          ┌──────────────────┼──────────────────┐
+          │          │       │       │           │
+     ┌────┴┐    ┌────┴┐  ┌───┴─┐  ┌─┴───┐  ┌───┴─┐
+     │:9001│    │:9002│  │:9003│  │:9004│  │:9005│
+     │chunk│    │chunk│  │chunk│  │chunk│  │chunk│
+     │store│    │store│  │store│  │store│  │store│
+     └─────┘    └─────┘  └─────┘  └─────┘  └─────┘
 
-Aditya Shukla
+     Web Dashboard :5000 talks to Master via socket API
+```
 
-⭐ Show Your Support
+## Key Concepts Demonstrated
 
-If you like this project, give it a ⭐ on GitHub!
+| Feature | How it works |
+|---|---|
+| **Chunking** | Files split into 512 KB chunks |
+| **Replication** | Each chunk stored on 3 nodes (RF=3) |
+| **Fault Tolerance** | System survives 2 node failures with RF=3 |
+| **Auto Re-replication** | Master detects dead nodes, restores RF |
+| **Checksum** | MD5 verified on every download |
+| **Heartbeat** | Nodes ping master every 4s; timeout=15s |
 
-💡 Why This Project Matters
+## File Structure
 
-This project demonstrates real-world concepts used in systems like:
+```
+dfs_project/
+├── launch.py          ← Start everything here
+├── master_node.py     ← Metadata + coordination
+├── storage_node.py    ← Chunk storage
+├── dashboard.py       ← Flask web server
+├── requirements.txt   ← pip install flask
+├── master_metadata.json  ← Auto-generated
+└── templates/
+    └── dashboard.html ← Full interactive UI
+```
 
-Google File System (GFS)
-Hadoop Distributed File System (HDFS)
+## Manual start (separate terminals)
+
+```bash
+python master_node.py               # Terminal 1
+python storage_node.py 9001         # Terminal 2
+python storage_node.py 9002         # Terminal 3
+python storage_node.py 9003         # Terminal 4
+python storage_node.py 9004         # Terminal 5
+python storage_node.py 9005         # Terminal 6
+python dashboard.py                 # Terminal 7
+```
+
+## Dashboard Features
+
+- **Live cluster topology** — SVG visualization of master + 5 nodes
+- **Real file upload/download** — actual chunking & replication
+- **Kill/Recover nodes** — click any node to simulate failure
+- **Chunk replica matrix** — see which chunks live on which nodes
+- **Demo buttons** — one-click demos for presentations
+- **System log** — real-time heartbeat & operation log
+- **Auto-refresh** — polls master every 3 seconds
+
+## Fault Tolerance Math
+
+With RF=3 across 5 nodes:
+- **0 failures** → all chunks at 3× replication ✓
+- **1 failure**  → chunks at 2× → master re-replicates ✓
+- **2 failures** → chunks at 1× → still readable ✓
+- **3 failures** → some chunks at 0× → DATA LOSS ✗
+
+---
+*OS Course Project | Python | Flask | Raw Sockets | Threading*

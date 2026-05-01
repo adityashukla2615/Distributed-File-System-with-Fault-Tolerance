@@ -15,11 +15,13 @@ from pathlib import Path
 
 MASTER_HOST = 'localhost'
 MASTER_PORT = 9000
-HEARTBEAT_INTERVAL = 4  # seconds
+HEARTBEAT_INTERVAL = 4
 
 def log(msg, port, level="INFO"):
     ts = datetime.now().strftime("%H:%M:%S")
-    print(f"[{ts}] [NODE-{port}] [{level}] {msg}")
+    symbols = {"INFO": "·", "WARN": "⚠", "ERROR": "✕"}
+    sym = symbols.get(level, "·")
+    print(f"[{ts}] [NODE-{port-9000}] {sym} {msg}")
 
 class StorageNode:
     def __init__(self, port):
@@ -55,8 +57,7 @@ class StorageNode:
         return [f.name for f in self.storage_dir.iterdir()]
 
     def get_storage_size(self):
-        total = sum(f.stat().st_size for f in self.storage_dir.iterdir())
-        return total
+        return sum(f.stat().st_size for f in self.storage_dir.iterdir())
 
     def handle_request(self, conn):
         try:
@@ -77,9 +78,9 @@ class StorageNode:
                 response = {"status": "ok" if ok else "error"}
 
             elif cmd == "GET_CHUNK":
-                data = self.get_chunk(payload["chunk_id"])
-                if data is not None:
-                    response = {"status": "ok", "data": data}
+                chunk_data = self.get_chunk(payload["chunk_id"])
+                if chunk_data is not None:
+                    response = {"status": "ok", "data": chunk_data}
                 else:
                     response = {"status": "error", "msg": "Chunk not found"}
 
@@ -104,7 +105,6 @@ class StorageNode:
             conn.close()
 
     def send_heartbeat(self):
-        """Continuously send heartbeats to master"""
         while self.running:
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -120,16 +120,14 @@ class StorageNode:
             time.sleep(HEARTBEAT_INTERVAL)
 
     def start(self):
-        # Start heartbeat thread
         hb_thread = threading.Thread(target=self.send_heartbeat, daemon=True)
         hb_thread.start()
 
-        # Start server
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind(('localhost', self.port))
         server.listen(10)
-        log(f"Node started, listening on port {self.port}", self.port)
+        log(f"Node started on :{self.port} | Storage: ./{self.storage_dir}", self.port)
 
         while self.running:
             try:
@@ -145,9 +143,8 @@ class StorageNode:
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python storage_node.py <port>")
-        print("Example ports: 9001, 9002, 9003, 9004, 9005")
+        print("Ports: 9001, 9002, 9003, 9004, 9005")
         sys.exit(1)
-
     port = int(sys.argv[1])
     node = StorageNode(port)
     node.start()
